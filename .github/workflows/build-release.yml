@@ -25,12 +25,17 @@ jobs:
       - name: Build project
         run: npm run build
       
+      - name: Create ZIP from dist
+        run: |
+          cd dist
+          zip -r ../Mathematica+.zip .
+          cd ..
+      
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ github.run_number }}
           name: Release v${{ github.run_number }}
-          files: |
-            dist/**/*
+          files: Mathematica+.zip
           draft: false
           prerelease: false
