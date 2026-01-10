@@ -1,0 +1,20 @@
+{
+  "name": "chrome-extension-ts-template",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "clean": "rimraf dist",
+    "build": "node build.js",
+    "watch": "node build.js --watch"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.240",
+    "cpx": "^1.5.0",
+    "esbuild": "^0.27.2",
+    "rimraf": "^4.0.5",
+    "typescript": "^5.3.0"
+  },
+  "dependencies": {
+    "katex": "^0.16.27"
+  }
+}

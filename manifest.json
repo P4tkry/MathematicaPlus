@@ -1,0 +1,52 @@
+{
+  "name": "Mathematica+",
+  "description": "Better Mathematica experience",
+  "version": "1.0",
+  "manifest_version": 3,
+  "icons": {
+    "16": "logo.png",
+    "48": "logo.png",
+    "128": "logo.png"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": "logo.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "commands": {
+    "activate-ai-math": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Q"
+      },
+      "description": "Uruchom AI w Mathematica+"
+    }
+  },
+  "host_permissions": [
+    "https://ai-one.p4tkry.pl/*"
+  ],
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "tabs",
+    "declarativeNetRequestWithHostAccess"
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["fonts/*"],
+      "matches": ["<all_urls>"]
+    }
+  ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "cors_rules",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  }
+}
