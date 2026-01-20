@@ -17,18 +17,25 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Keyboard shortcut listener
 chrome.commands.onCommand.addListener(function (command) {
-  if (command === "activate-ai-math") {
-    chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
-      const activeTab = tabs[0];
-      if (!activeTab.url || !checkURLIfWolframCloud(activeTab.url)) {
-        return;
-      }
+  if (command !== "activate-ai-math" && command !== "audit-notebook-v2") {
+    return;
+  }
 
-      // Inject content script file instead of function
-      chrome.scripting.executeScript({
-        target: { tabId: activeTab.id! },
-        files: ['content.js']
+  chrome.tabs.query({ active: true, currentWindow: true }, function (tabs) {
+    const activeTab = tabs[0];
+    if (!activeTab.url || !checkURLIfWolframCloud(activeTab.url)) {
+      return;
+    }
+
+    // Inject content script file instead of function
+    chrome.scripting.executeScript({
+      target: { tabId: activeTab.id! },
+      files: ['content.js']
+    }, () => {
+      chrome.tabs.sendMessage(activeTab.id!, {
+        type: "runContentAction",
+        action: command === "audit-notebook-v2" ? "audit" : "compute"
       });
     });
-  }
+  });
 });

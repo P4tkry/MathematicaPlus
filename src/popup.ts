@@ -1,6 +1,24 @@
 const tokenInput = document.querySelector<HTMLInputElement>('#token');
 const saveButton = document.querySelector<HTMLButtonElement>('#saveBtn');
 const statusEl = document.querySelector<HTMLDivElement>('#status');
+const modeInputs = document.querySelectorAll<HTMLInputElement>('input[name="processingMode"]');
+
+type ProcessingMode = 'v1' | 'v2';
+
+const setModeSelection = (mode: ProcessingMode) => {
+  modeInputs.forEach((input) => {
+    input.checked = input.value === mode;
+  });
+};
+
+const getSelectedMode = (): ProcessingMode => {
+  const selected = Array.from(modeInputs).find((input) => input.checked);
+  return selected?.value === 'v2' ? 'v2' : 'v1';
+};
+
+const storeProcessingMode = (mode: ProcessingMode): void => {
+  chrome.storage.local.set({ processingMode: mode });
+};
 
 const showStatus = (message: string, isSuccess: boolean) => {
   if (statusEl) {
@@ -31,11 +49,24 @@ const validateToken = (token: string): Promise<boolean> =>
     });
   });
 
-// Load saved token on popup open
-chrome.storage.local.get('token', (result) => {
+// Load saved token and processing mode on popup open
+chrome.storage.local.get(['token', 'processingMode'], (result) => {
   if (result?.token && tokenInput) {
     tokenInput.value = result.token;
   }
+
+  const savedMode = result?.processingMode === 'v2' ? 'v2' : 'v1';
+  setModeSelection(savedMode);
+
+  if (!result?.processingMode) {
+    storeProcessingMode(savedMode);
+  }
+});
+
+modeInputs.forEach((input) => {
+  input.addEventListener('change', () => {
+    storeProcessingMode(getSelectedMode());
+  });
 });
 
 // Save button click handler

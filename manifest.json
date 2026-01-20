@@ -22,6 +22,12 @@
         "default": "Ctrl+Shift+Q"
       },
       "description": "Uruchom AI w Mathematica+"
+    },
+    "audit-notebook-v2": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+F"
+      },
+      "description": "Sprawdz blad w notebooku (V2)"
     }
   },
   "host_permissions": [
