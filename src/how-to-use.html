@@ -52,12 +52,13 @@
   
   <h2>1. Konfiguracja</h2>
   <div class="step">
-    <p>Przed użyciem rozszerzenia musisz skonfigurować token dostępu:</p>
+    <p>Przed użyciem rozszerzenia musisz skonfigurować poświadczenia:</p>
     <ol>
       <li>Kliknij ikonę rozszerzenia Mathematica+ w pasku narzędzi</li>
       <li>Wprowadź swój <strong>Access Token</strong></li>
-      <li>Kliknij <strong>"Zapisz Token"</strong></li>
-      <li>Poczekaj na potwierdzenie "✓ Token zapisany pomyślnie!"</li>
+      <li>Wprowadź <strong>nazwę użytkownika</strong> do czatu</li>
+      <li>Kliknij <strong>"Zapisz poświadczenia"</strong></li>
+      <li>Poczekaj na potwierdzenie "✓ Poświadczenia zapisane!"</li>
     </ol>
   </div>
 
@@ -88,26 +89,43 @@
     <strong>Rezultat:</strong> AI wyjaśni zagadnienie po polsku w prosty sposób, może użyć wzorów LaTeX
   </div>
 
-  <h2>3. Jak używać</h2>
+  <h2>3. Jak używać dyrektyw</h2>
   <div class="step">
     <ol>
       <li>Otwórz notebook w <strong>Wolfram Cloud</strong> (wolframcloud.com)</li>
       <li>Wpisz dyrektywę Math+ w komórce (np. <code>[Math: całka z x^2]</code>)</li>
-      <li>Naciśnij <strong>Ctrl+Shift+Q</strong> (lub kliknij ikonę rozszerzenia)</li>
+      <li>Naciśnij <strong>Ctrl+Shift+Q</strong></li>
       <li>Poczekaj aż AI przetworzy zapytania</li>
       <li>Rezultaty pojawią się w popupach obok dyrektyw</li>
     </ol>
   </div>
 
-  <h2>4. Skrót klawiszowy</h2>
-  <p>Domyślny skrót: <strong>Ctrl+Shift+Q</strong></p>
-  <p>Aktywuje przetwarzanie wszystkich dyrektyw Math+ w aktualnym notebooku.</p>
+  <h2>4. Chat MathematicaPlus inChat</h2>
+  <div class="step">
+    <ol>
+      <li>Upewnij się, że masz zapisany token i nazwę użytkownika</li>
+      <li>Otwórz czat skrótem <strong>Ctrl+M</strong> lub przyciskiem <strong>"Otworz czat"</strong> w popupie</li>
+      <li>Wpisz <strong>Chat ID</strong> i kliknij <strong>"Zapisz"</strong></li>
+      <li>Pisz wiadomości i kliknij <strong>"Wyslij"</strong></li>
+      <li>Użyj <strong>"Zalacz kod"</strong>, aby wysłać cały kod z aktualnego notebooka</li>
+    </ol>
+  </div>
 
-  <h2>5. Rozwiązywanie problemów</h2>
+  <h2>5. Skróty klawiszowe</h2>
+  <ul>
+    <li><strong>Ctrl+Shift+Q</strong> — przetwarzanie dyrektyw Math+</li>
+    <li><strong>Ctrl+Shift+F</strong> — audit notebooka (V2)</li>
+    <li><strong>Ctrl+M</strong> — otwórz czat</li>
+  </ul>
+
+  <h2>6. Zamknięcie modali</h2>
+  <p>Naciśnij <strong>Esc</strong>, aby zamknąć dowolny modal.</p>
+
+  <h2>7. Rozwiązywanie problemów</h2>
   <div class="step">
     <p><strong>Popup z błędem "Mathematica+ error":</strong></p>
     <ul>
-      <li>Sprawdź czy token jest prawidłowy</li>
+      <li>Sprawdź czy token i nazwa użytkownika są zapisane</li>
       <li>Upewnij się, że masz połączenie z internetem</li>
       <li>Sprawdź czy jesteś na stronie wolframcloud.com</li>
     </ul>
@@ -119,11 +137,11 @@
     </ul>
   </div>
 
-  <h2>6. Wskazówki</h2>
+  <h2>8. Wskazówki</h2>
   <ul>
     <li>Możesz używać wielu dyrektyw w jednym notebooku</li>
     <li>Wyniki LaTeX są renderowane w czytelnym formacie matematycznym</li>
-    <li>Token jest przechowywany bezpiecznie w pamięci rozszerzenia</li>
+    <li>Token i nazwa użytkownika są przechowywane w pamięci rozszerzenia</li>
     <li>Możesz zamknąć popup klikając przycisk ✕ w prawym górnym rogu</li>
   </ul>
 

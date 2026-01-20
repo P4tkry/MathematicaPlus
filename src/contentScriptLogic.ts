@@ -1,7 +1,7 @@
 // Content script logic for processing Math+ directives
 import katex from 'katex';
 import katexStyles from 'katex/dist/katex.min.css';
-import { getStoredProcessingMode } from './storage.js';
+import { getStoredProcessingMode, getStoredChatRoomId, setStoredChatRoomId, getStoredChatUsername, getStoredToken } from './storage.js';
 
 interface Directive {
   directive: string;
@@ -27,10 +27,10 @@ export function getAllMathPlusDirectives(): Directive[] {
   const directives: Directive[] = [];
 
   // Find all strings [Math: ...], [Wolfram: ...], [Explain: ...]
-  const notebookText = notebookDiv?.textContent || "";
-  const mathRegex = /\[Math:(.*?)\]/g;
-  const wolframRegex = /\[Wolfram:(.*?)\]/g;
-  const explainRegex = /\[Explain:(.*?)\]/g;
+  const notebookText = getNotebookCells(notebookDiv).join(' ');
+  const mathRegex = /\[\s*Math\s*:\s*(.*?)\]/g;
+  const wolframRegex = /\[\s*Wolfram\s*:\s*(.*?)\]/g;
+  const explainRegex = /\[\s*Explain\s*:\s*(.*?)\]/g;
   
   let match;
   while ((match = mathRegex.exec(notebookText)) !== null) {
@@ -127,6 +127,28 @@ function showErrorPopup(message: string = "Mathematica+ error"): void {
       errorDiv.remove();
     }, 500);
   }, 5000);
+}
+
+function attachEscapeClose(close: () => void): () => void {
+  const handler = (event: KeyboardEvent) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
+    }
+  };
+  document.addEventListener('keydown', handler, true);
+  return () => {
+    document.removeEventListener('keydown', handler, true);
+  };
+}
+
+async function ensureCredentials(): Promise<boolean> {
+  const [token, username] = await Promise.all([getStoredToken(), getStoredChatUsername()]);
+  if (!token || !username) {
+    showErrorPopup("Brak poswiadczen. Ustaw token i nazwe uzytkownika w oknie wtyczki.");
+    return false;
+  }
+  return true;
 }
 
 // Show loading spinner in bottom left corner
@@ -292,13 +314,20 @@ closeBtn.style.top = '6px';
 closeBtn.style.right = '6px';
 closeBtn.style.border = 'none';
 closeBtn.style.background = 'transparent';
-closeBtn.style.cursor = 'pointer';
 closeBtn.style.fontSize = '5px';
 
+  let detachEscape: (() => void) | null = null;
+  const closePopup = () => {
+    if (detachEscape) {
+      detachEscape();
+      detachEscape = null;
+    }
+    popup.remove();
+  };
+
 // Close popup on click
-closeBtn.addEventListener('click', () => {
-  popup.remove();
-});
+closeBtn.addEventListener('click', closePopup);
+  detachEscape = attachEscapeClose(closePopup);
 
 // Render LaTeX if available
 const renderedContent = renderLatex(response);
@@ -336,6 +365,17 @@ interface AuditErrorItem {
   explanation: string;
 }
 
+interface OneChatMessage {
+  username: string;
+  content: string;
+  timestamp: string;
+}
+
+interface ChatPayload {
+  type: string;
+  content: string;
+}
+
 function buildAuditBody(item: AuditErrorItem): string {
   const error = renderLatex(item.error || "-");
   const current = renderLatex(item.current || "-");
@@ -360,6 +400,204 @@ function buildAuditBody(item: AuditErrorItem): string {
     `<div class="audit-body">${explanation}</div>`,
     `</div>`
   ].join('');
+}
+
+function buildResultBody(item: ModalItem): string {
+  const response = renderLatex(item.response || "-");
+
+  return [
+    `<div class="result-card">`,
+    `<div class="result-label">Odpowiedz</div>`,
+    `<div class="result-body">${response}</div>`,
+    `</div>`
+  ].join('');
+}
+
+function createAskAiModal(): HTMLElement {
+  const overlay = document.createElement('div');
+  overlay.id = 'mathematica-ask-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.35)';
+  overlay.style.zIndex = '10000';
+  overlay.style.pointerEvents = 'none';
+
+  const modal = document.createElement('div');
+  modal.style.backgroundColor = '#ffffff';
+  modal.style.borderRadius = '12px';
+  modal.style.maxWidth = '680px';
+  modal.style.width = '92%';
+  modal.style.border = '1px solid #e6e6e6';
+  modal.style.boxShadow = '0 16px 40px rgba(0, 0, 0, 0.18)';
+  modal.style.padding = '16px 18px 14px';
+  modal.style.position = 'relative';
+  modal.style.fontSize = '14px';
+  modal.style.color = '#222';
+  modal.style.pointerEvents = 'auto';
+  modal.style.display = 'flex';
+  modal.style.flexDirection = 'column';
+  modal.style.gap = '10px';
+  modal.style.maxHeight = '80vh';
+  modal.style.overflow = 'hidden';
+
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.paddingBottom = '6px';
+  header.style.borderBottom = '1px solid #eee';
+
+  const title = document.createElement('div');
+  title.textContent = 'Pytanie do AI';
+  title.style.fontWeight = 'bold';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.border = 'none';
+  closeBtn.style.background = 'transparent';
+  closeBtn.style.fontSize = '14px';
+
+  let detachEscape: (() => void) | null = null;
+  const closeModal = () => {
+    if (detachEscape) {
+      detachEscape();
+      detachEscape = null;
+    }
+    overlay.remove();
+    document.removeEventListener('mousedown', handleOutsideClick, true);
+  };
+
+  closeBtn.addEventListener('click', closeModal);
+
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const input = document.createElement('textarea');
+  input.id = 'mathematica-ask-input';
+  input.placeholder = 'Wpisz pytanie...';
+  input.rows = 4;
+  input.style.width = '100%';
+  input.style.boxSizing = 'border-box';
+  input.style.padding = '10px 12px';
+  input.style.border = '1px solid #ddd';
+  input.style.borderRadius = '10px';
+  input.style.fontSize = '13px';
+  input.style.resize = 'vertical';
+
+  const hint = document.createElement('div');
+  hint.textContent = 'Ctrl+Enter — wyslij';
+  hint.style.fontSize = '11px';
+  hint.style.color = '#666';
+
+  const actions = document.createElement('div');
+  actions.style.display = 'flex';
+  actions.style.justifyContent = 'space-between';
+  actions.style.alignItems = 'center';
+  actions.style.gap = '8px';
+
+  const sendBtn = document.createElement('button');
+  sendBtn.id = 'mathematica-ask-send';
+  sendBtn.textContent = 'Zapytaj';
+  sendBtn.style.padding = '8px 12px';
+  sendBtn.style.border = '1px solid #f4b9a6';
+  sendBtn.style.background = '#ffefe9';
+  sendBtn.style.color = '#9a3412';
+  sendBtn.style.borderRadius = '8px';
+
+  actions.appendChild(hint);
+  actions.appendChild(sendBtn);
+
+  const responseWrap = document.createElement('div');
+  responseWrap.id = 'mathematica-ask-response';
+  responseWrap.style.maxHeight = '45vh';
+  responseWrap.style.overflowY = 'auto';
+  responseWrap.style.border = '1px solid #eee';
+  responseWrap.style.borderRadius = '10px';
+  responseWrap.style.padding = '10px 12px';
+  responseWrap.style.background = '#fafafa';
+
+  modal.appendChild(header);
+  modal.appendChild(input);
+  modal.appendChild(actions);
+  modal.appendChild(responseWrap);
+  overlay.appendChild(modal);
+
+  const handleOutsideClick = (event: MouseEvent) => {
+    if (!modal.contains(event.target as Node)) {
+      closeModal();
+    }
+  };
+
+  document.addEventListener('mousedown', handleOutsideClick, true);
+  detachEscape = attachEscapeClose(closeModal);
+
+  return overlay;
+}
+
+export async function runAskAiModal(): Promise<void> {
+  if (!(await ensureCredentials())) {
+    return;
+  }
+
+  const existingOverlay = document.querySelector('#mathematica-ask-overlay');
+  if (existingOverlay) {
+    existingOverlay.remove();
+  }
+
+  ensureKatexStyles();
+  ensureMarkdownStyles();
+  ensureResultStyles();
+
+  const overlay = createAskAiModal();
+  const input = overlay.querySelector('#mathematica-ask-input') as HTMLTextAreaElement | null;
+  const sendBtn = overlay.querySelector('#mathematica-ask-send') as HTMLButtonElement | null;
+  const responseWrap = overlay.querySelector('#mathematica-ask-response') as HTMLDivElement | null;
+
+  if (!input || !sendBtn || !responseWrap) {
+    return;
+  }
+
+  const setResponse = (text: string) => {
+    responseWrap.innerHTML = buildResultBody({ directive: 'Ask', content: input.value.trim(), response: text });
+  };
+
+  const handleSend = async () => {
+    const question = input.value.trim();
+    if (!question) {
+      showErrorPopup('Wpisz pytanie.');
+      return;
+    }
+    sendBtn.disabled = true;
+    const originalLabel = sendBtn.textContent;
+    sendBtn.textContent = 'Generowanie...';
+    setResponse('Generowanie odpowiedzi...');
+    const prompt = [
+      question,
+      "",
+      "Zawsze zapisuj wzory LaTeX tylko jako $...$ (inline) lub $$...$$ (display). Nie używaj \\( \\) ani \\[ \\]."
+    ].join('\n');
+    const response = await fetchAIResponse(prompt);
+    sendBtn.disabled = false;
+    sendBtn.textContent = originalLabel || 'Zapytaj';
+    setResponse(response || 'Błąd podczas pobierania odpowiedzi AI');
+  };
+
+  sendBtn.addEventListener('click', handleSend);
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && event.ctrlKey) {
+      event.preventDefault();
+      handleSend();
+    }
+  });
+
+  document.body.appendChild(overlay);
+  input.focus();
 }
 
 function createAuditModal(title: string, bodyHtml: string): HTMLElement {
@@ -403,11 +641,18 @@ function createAuditModal(title: string, bodyHtml: string): HTMLElement {
   closeBtn.textContent = '✕';
   closeBtn.style.border = 'none';
   closeBtn.style.background = 'transparent';
-  closeBtn.style.cursor = 'pointer';
   closeBtn.style.fontSize = '14px';
-  closeBtn.addEventListener('click', () => {
+  let detachEscape: (() => void) | null = null;
+  const closeModal = () => {
+    if (detachEscape) {
+      detachEscape();
+      detachEscape = null;
+    }
     overlay.remove();
-  });
+    document.removeEventListener('mousedown', handleOutsideClick, true);
+  };
+
+  closeBtn.addEventListener('click', closeModal);
 
   header.appendChild(titleEl);
   header.appendChild(closeBtn);
@@ -423,12 +668,12 @@ function createAuditModal(title: string, bodyHtml: string): HTMLElement {
 
   const handleOutsideClick = (event: MouseEvent) => {
     if (!modal.contains(event.target as Node)) {
-      overlay.remove();
-      document.removeEventListener('mousedown', handleOutsideClick, true);
+      closeModal();
     }
   };
 
   document.addEventListener('mousedown', handleOutsideClick, true);
+  detachEscape = attachEscapeClose(closeModal);
 
   return overlay;
 }
@@ -474,11 +719,18 @@ function buildAuditModalCarousel(items: AuditErrorItem[]): HTMLElement {
   closeBtn.textContent = '✕';
   closeBtn.style.border = 'none';
   closeBtn.style.background = 'transparent';
-  closeBtn.style.cursor = 'pointer';
   closeBtn.style.fontSize = '14px';
-  closeBtn.addEventListener('click', () => {
+  let detachEscape: (() => void) | null = null;
+  const closeModal = () => {
+    if (detachEscape) {
+      detachEscape();
+      detachEscape = null;
+    }
     overlay.remove();
-  });
+    document.removeEventListener('mousedown', handleOutsideClick, true);
+  };
+
+  closeBtn.addEventListener('click', closeModal);
 
   header.appendChild(titleEl);
   header.appendChild(closeBtn);
@@ -503,7 +755,6 @@ function buildAuditModalCarousel(items: AuditErrorItem[]): HTMLElement {
   prevBtn.style.padding = '6px 10px';
   prevBtn.style.border = '1px solid #ccc';
   prevBtn.style.background = '#f5f5f5';
-  prevBtn.style.cursor = 'pointer';
   prevBtn.style.borderRadius = '6px';
 
   const nextBtn = document.createElement('button');
@@ -511,7 +762,6 @@ function buildAuditModalCarousel(items: AuditErrorItem[]): HTMLElement {
   nextBtn.style.padding = '6px 10px';
   nextBtn.style.border = '1px solid #ccc';
   nextBtn.style.background = '#f5f5f5';
-  nextBtn.style.cursor = 'pointer';
   nextBtn.style.borderRadius = '6px';
 
   nav.appendChild(prevBtn);
@@ -551,12 +801,12 @@ function buildAuditModalCarousel(items: AuditErrorItem[]): HTMLElement {
 
   const handleOutsideClick = (event: MouseEvent) => {
     if (!modal.contains(event.target as Node)) {
-      overlay.remove();
-      document.removeEventListener('mousedown', handleOutsideClick, true);
+      closeModal();
     }
   };
 
   document.addEventListener('mousedown', handleOutsideClick, true);
+  detachEscape = attachEscapeClose(closeModal);
 
   renderItem(currentIndex);
 
@@ -600,17 +850,6 @@ function ensureMarkdownStyles(): void {
   document.head.appendChild(style);
 }
 
-function ensureCaretStyle(): void {
-  if (document.querySelector('#mathematica-caret-style')) {
-    return;
-  }
-
-  const style = document.createElement('style');
-  style.id = 'mathematica-caret-style';
-  style.textContent = '.notebook, .notebook * { caret-color: #000000 !important; }';
-  document.head.appendChild(style);
-}
-
 function ensureAuditStyles(): void {
   if (document.querySelector('#mathematica-audit-style')) {
     return;
@@ -625,6 +864,234 @@ function ensureAuditStyles(): void {
     '.audit-muted { background: #ffffff; border: 1px solid #eee; padding: 6px 8px; border-radius: 6px; }' +
     '.audit-fix { background: #f0f8ff; border: 1px solid #dbeafe; padding: 6px 8px; border-radius: 6px; }';
   document.head.appendChild(style);
+}
+
+function ensureResultStyles(): void {
+  if (document.querySelector('#mathematica-result-style')) {
+    return;
+  }
+
+  const style = document.createElement('style');
+  style.id = 'mathematica-result-style';
+  style.textContent =
+    '.result-card { margin: 10px 0; padding: 10px 12px; border-radius: 10px; background: #f8f8f8; border: 1px solid #eeeeee; }' +
+    '.result-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: #666; margin-bottom: 6px; }' +
+    '.result-body { font-size: 14px; color: #222; line-height: 1.5; background: #ffffff; border: 1px solid #f0f0f0; border-radius: 8px; padding: 8px 10px; }';
+  document.head.appendChild(style);
+}
+
+function createChatModalContainer(onClose?: () => void): { overlay: HTMLElement; close: () => void } {
+  const overlay = document.createElement('div');
+  overlay.id = 'mathematica-chat-overlay';
+  overlay.style.position = 'fixed';
+  overlay.style.top = '0';
+  overlay.style.left = '0';
+  overlay.style.width = '100%';
+  overlay.style.height = '100%';
+  overlay.style.display = 'flex';
+  overlay.style.alignItems = 'center';
+  overlay.style.justifyContent = 'center';
+  overlay.style.backgroundColor = 'rgba(0, 0, 0, 0.35)';
+  overlay.style.zIndex = '10000';
+  overlay.style.pointerEvents = 'none';
+
+  const modal = document.createElement('div');
+  modal.style.backgroundColor = '#ffffff';
+  modal.style.borderRadius = '14px';
+  modal.style.maxWidth = '780px';
+  modal.style.width = '92%';
+  modal.style.border = '1px solid #e6e6e6';
+  modal.style.boxShadow = '0 20px 50px rgba(0, 0, 0, 0.18)';
+  modal.style.padding = '16px 18px 16px';
+  modal.style.position = 'relative';
+  modal.style.fontSize = '14px';
+  modal.style.color = '#222';
+  modal.style.pointerEvents = 'auto';
+  modal.style.display = 'flex';
+  modal.style.flexDirection = 'column';
+  modal.style.gap = '10px';
+  modal.style.maxHeight = '80vh';
+  modal.style.overflow = 'hidden';
+
+  const header = document.createElement('div');
+  header.style.display = 'flex';
+  header.style.justifyContent = 'space-between';
+  header.style.alignItems = 'center';
+  header.style.paddingBottom = '6px';
+  header.style.borderBottom = '1px solid #eee';
+  header.style.background = 'linear-gradient(90deg, #fff7ed, #ffffff)';
+  header.style.margin = '-16px -18px 8px';
+  header.style.padding = '12px 18px';
+
+  const title = document.createElement('div');
+  title.textContent = 'MathematicaPlus inChat';
+  title.style.fontWeight = 'bold';
+  title.style.fontSize = '15px';
+
+  const closeBtn = document.createElement('button');
+  closeBtn.textContent = '✕';
+  closeBtn.style.border = 'none';
+  closeBtn.style.background = 'transparent';
+  closeBtn.style.fontSize = '14px';
+
+  header.appendChild(title);
+  header.appendChild(closeBtn);
+
+  const content = document.createElement('div');
+  content.id = 'mathematica-chat-content';
+  content.style.display = 'flex';
+  content.style.flexDirection = 'column';
+  content.style.gap = '10px';
+  content.style.padding = '0 2px 2px';
+
+  modal.appendChild(header);
+  modal.appendChild(content);
+  overlay.appendChild(modal);
+
+  let detachEscape: (() => void) | null = null;
+  const close = () => {
+    if (detachEscape) {
+      detachEscape();
+      detachEscape = null;
+    }
+    if (onClose) {
+      onClose();
+    }
+    overlay.remove();
+    document.removeEventListener('mousedown', handleOutsideClick, true);
+  };
+
+  const handleOutsideClick = (event: MouseEvent) => {
+    if (!modal.contains(event.target as Node)) {
+      close();
+    }
+  };
+
+  closeBtn.addEventListener('click', close);
+  document.addEventListener('mousedown', handleOutsideClick, true);
+  detachEscape = attachEscapeClose(close);
+
+  return { overlay, close };
+}
+
+async function oneChatGet(roomId: string): Promise<OneChatMessage[]> {
+  const response = await new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "onechatGet", roomId }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ status: "error" });
+        return;
+      }
+      resolve(response);
+    });
+  });
+
+  if (response && (response as { status: string }).status === "success") {
+    const data = (response as { status: string; data?: { messages?: OneChatMessage[] } }).data;
+    return Array.isArray(data?.messages) ? data!.messages! : [];
+  }
+
+  return [];
+}
+
+async function oneChatSend(roomId: string, username: string, message: string): Promise<boolean> {
+  const response = await new Promise((resolve) => {
+    chrome.runtime.sendMessage({ type: "onechatSend", roomId, username, content: message }, (response) => {
+      if (chrome.runtime.lastError) {
+        resolve({ status: "error" });
+        return;
+      }
+      resolve(response);
+    });
+  });
+
+  return response && (response as { status: string }).status === "success";
+}
+
+function formatChatTimestamp(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString();
+}
+
+function parseChatPayload(raw: string): ChatPayload | null {
+  try {
+    const parsed = JSON.parse(raw) as ChatPayload;
+    if (parsed && typeof parsed.type === 'string' && typeof parsed.content === 'string') {
+      return parsed;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function renderChatMessages(container: HTMLElement, messages: OneChatMessage[], currentUsername: string): void {
+  container.innerHTML = '';
+  if (messages.length === 0) {
+    const empty = document.createElement('div');
+    empty.textContent = 'Brak wiadomosci.';
+    empty.style.color = '#666';
+    empty.style.fontSize = '13px';
+    container.appendChild(empty);
+    return;
+  }
+
+  for (const msg of messages) {
+    const isSelf = currentUsername && msg.username === currentUsername;
+    const item = document.createElement('div');
+    item.style.alignSelf = isSelf ? 'flex-end' : 'flex-start';
+    item.style.maxWidth = '85%';
+    item.style.padding = '9px 11px';
+    item.style.border = '1px solid #e8e8e8';
+    item.style.borderRadius = '12px';
+    item.style.background = isSelf ? '#fff1eb' : '#f8fafc';
+    item.style.boxShadow = '0 4px 10px rgba(0,0,0,0.06)';
+
+    const meta = document.createElement('div');
+    meta.textContent = `${msg.username} • ${formatChatTimestamp(msg.timestamp)}`;
+    meta.style.fontSize = '11px';
+    meta.style.color = '#666';
+    meta.style.marginBottom = '4px';
+
+    const payload = parseChatPayload(msg.content);
+
+    const body = document.createElement('div');
+    body.style.fontSize = '14px';
+    body.style.whiteSpace = 'pre-wrap';
+
+    if (payload?.type === 'notebook') {
+      const label = document.createElement('div');
+      label.textContent = 'Notebook';
+      label.style.fontSize = '11px';
+      label.style.textTransform = 'uppercase';
+      label.style.letterSpacing = '0.6px';
+      label.style.color = '#9a3412';
+      label.style.marginBottom = '6px';
+
+      const codeBox = document.createElement('pre');
+      codeBox.textContent = payload.content;
+      codeBox.style.margin = '0';
+      codeBox.style.padding = '10px 12px';
+      codeBox.style.background = '#1f2937';
+      codeBox.style.color = '#f8fafc';
+      codeBox.style.borderRadius = '8px';
+      codeBox.style.fontSize = '12px';
+      codeBox.style.lineHeight = '1.45';
+      codeBox.style.whiteSpace = 'pre-wrap';
+      codeBox.style.fontFamily = 'Consolas, "Courier New", monospace';
+
+      body.appendChild(label);
+      body.appendChild(codeBox);
+    } else {
+      body.textContent = msg.content;
+    }
+
+    item.appendChild(meta);
+    item.appendChild(body);
+    container.appendChild(item);
+  }
 }
 
 function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null): HTMLElement {
@@ -668,11 +1135,18 @@ function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null):
   closeBtn.textContent = '✕';
   closeBtn.style.border = 'none';
   closeBtn.style.background = 'transparent';
-  closeBtn.style.cursor = 'pointer';
   closeBtn.style.fontSize = '14px';
-  closeBtn.addEventListener('click', () => {
+  let detachEscape: (() => void) | null = null;
+  const closeModal = () => {
+    if (detachEscape) {
+      detachEscape();
+      detachEscape = null;
+    }
     overlay.remove();
-  });
+    document.removeEventListener('mousedown', handleOutsideClick, true);
+  };
+
+  closeBtn.addEventListener('click', closeModal);
 
   header.appendChild(title);
   header.appendChild(closeBtn);
@@ -697,7 +1171,6 @@ function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null):
   prevBtn.style.padding = '6px 10px';
   prevBtn.style.border = '1px solid #ccc';
   prevBtn.style.background = '#f5f5f5';
-  prevBtn.style.cursor = 'pointer';
   prevBtn.style.borderRadius = '6px';
 
   const nextBtn = document.createElement('button');
@@ -705,7 +1178,6 @@ function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null):
   nextBtn.style.padding = '6px 10px';
   nextBtn.style.border = '1px solid #ccc';
   nextBtn.style.background = '#f5f5f5';
-  nextBtn.style.cursor = 'pointer';
   nextBtn.style.borderRadius = '6px';
 
   nav.appendChild(prevBtn);
@@ -722,7 +1194,7 @@ function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null):
   const renderItem = (index: number) => {
     const item = items[index];
     meta.textContent = `Pytanie ${index + 1} z ${items.length} • ${item.directive}: ${item.content}`;
-    content.innerHTML = renderLatex(item.response);
+    content.innerHTML = buildResultBody(item);
     prevBtn.disabled = index === 0;
     nextBtn.disabled = index === items.length - 1;
     prevBtn.style.opacity = prevBtn.disabled ? '0.5' : '1';
@@ -745,12 +1217,12 @@ function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null):
 
   const handleOutsideClick = (event: MouseEvent) => {
     if (!modal.contains(event.target as Node)) {
-      overlay.remove();
-      document.removeEventListener('mousedown', handleOutsideClick, true);
+      closeModal();
     }
   };
 
   document.addEventListener('mousedown', handleOutsideClick, true);
+  detachEscape = attachEscapeClose(closeModal);
 
   renderItem(currentIndex);
 
@@ -764,13 +1236,38 @@ function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null):
 
 function getNotebookCells(notebookDiv: HTMLElement): string[] {
   const rawText = notebookDiv.innerText || "";
-  return rawText.split(" ").map((cell) => cell.replaceAll("\n", "").trim()).filter((cell) => cell.length > 0);
+  return rawText
+    .split(" ")
+    .map((cell) => cell.replaceAll("\n", " "))
+    .map((cell) => cell.replace(/[\u200B-\u200D\uFEFF]/g, ""))
+    .map((cell) => cell.replace(/In\s*\[\s*[\d*]+\s*\]\s*:\s*=\s*/g, ""))
+    .map((cell) => cell.trim())
+    .filter((cell) => cell.length > 0)
+    .filter((cell) => !isOutBlock(cell));
+}
+
+function isOutBlock(text: string): boolean {
+  return /^Out(\s|\[|:)/.test(text);
+}
+
+function getNotebookTextForChat(): string | null {
+  const notebookDiv = document.querySelector('.notebook') as HTMLElement | null;
+  if (!notebookDiv) {
+    showErrorPopup("Nie znaleziono notebooka");
+    return null;
+  }
+  const text = getNotebookCells(notebookDiv).join('\n').trim();
+  if (!text) {
+    showErrorPopup("Notebook jest pusty");
+    return null;
+  }
+  return text;
 }
 
 function getAllDirectivesFromNotebookCells(cells: string[]): Directive[] {
-  const mathRegex = /\[Math:(.*?)\]/g;
-  const wolframRegex = /\[Wolfram:(.*?)\]/g;
-  const explainRegex = /\[Explain:(.*?)\]/g;
+  const mathRegex = /\[\s*Math\s*:\s*(.*?)\]/g;
+  const wolframRegex = /\[\s*Wolfram\s*:\s*(.*?)\]/g;
+  const explainRegex = /\[\s*Explain\s*:\s*(.*?)\]/g;
   const directives: Directive[] = [];
 
   for (const cell of cells) {
@@ -817,7 +1314,7 @@ async function runComputeAiV2(): Promise<void> {
       } else if (dir.directive === "Wolfram") {
         prompt = `Napisz kod w języku Wolfram Language dla: ${dir.content}. Podaj tylko kod, bez dodatkowych wyjaśnień.`;
       } else if (dir.directive === "Explain") {
-        prompt = `Wyjaśnij po polsku w prosty sposób: ${dir.content}. Użyj prostego języka. Jeśli potrzebne, użyj wzorów LaTeX w formacie $...$ (inline) lub $$...$$ (display).`;
+        prompt = `Wyjaśnij po polsku w prosty sposób: ${dir.content}. Użyj prostego języka. Zawsze zapisuj wzory LaTeX tylko jako $...$ (inline) lub $$...$$ (display). Nie używaj \\( \\) ani \\[ \\].`;
       } else {
         continue;
       }
@@ -832,6 +1329,7 @@ async function runComputeAiV2(): Promise<void> {
 
   ensureKatexStyles();
   ensureMarkdownStyles();
+  ensureResultStyles();
   const overlay = buildModalElement(results, notebookDiv);
   document.body.appendChild(overlay);
   } finally {
@@ -842,14 +1340,16 @@ async function runComputeAiV2(): Promise<void> {
 export async function runComputeAi(): Promise<void> {
   console.log("Mathematica+ AI aktywowane");
 
+  if (!(await ensureCredentials())) {
+    return;
+  }
+
   const processingMode = await getStoredProcessingMode();
   if (processingMode === 'v2') {
-    ensureCaretStyle();
     await runComputeAiV2();
     return;
   }
 
-  ensureCaretStyle();
   const directives = getAllMathPlusDirectives();
 
   if (directives.length === 0) {
@@ -866,7 +1366,7 @@ export async function runComputeAi(): Promise<void> {
       } else if (dir.directive === "Wolfram") {
         prompt = `Napisz kod w języku Wolfram Language dla: ${dir.content}. Podaj tylko kod, bez dodatkowych wyjaśnień.`;
       } else if (dir.directive === "Explain") {
-        prompt = `Wyjaśnij po polsku w prosty sposób: ${dir.content}. Użyj prostego języka. Jeśli potrzebne, użyj wzorów LaTeX w formacie $...$ (inline) lub $$...$$ (display).`;
+        prompt = `Wyjaśnij po polsku w prosty sposób: ${dir.content}. Użyj prostego języka. Zawsze zapisuj wzory LaTeX tylko jako $...$ (inline) lub $$...$$ (display). Nie używaj \\( \\) ani \\[ \\].`;
       } else {
         continue;
       }
@@ -885,6 +1385,10 @@ export async function runComputeAi(): Promise<void> {
 }
 
 export async function runNotebookAuditV2(): Promise<void> {
+  if (!(await ensureCredentials())) {
+    return;
+  }
+
   const notebookDiv = document.querySelector('.notebook') as HTMLElement | null;
   if (!notebookDiv) {
     showErrorPopup("Nie znaleziono notebooka");
@@ -961,5 +1465,249 @@ export async function runNotebookAuditV2(): Promise<void> {
     document.body.appendChild(overlay);
   } finally {
     hideLoadingSpinner();
+  }
+}
+
+export async function runChatModal(): Promise<void> {
+  if (!(await ensureCredentials())) {
+    return;
+  }
+
+  const existingOverlay = document.querySelector('#mathematica-chat-overlay');
+  if (existingOverlay) {
+    existingOverlay.remove();
+  }
+
+  let pollingId: number | null = null;
+  let currentRoomId = await getStoredChatRoomId();
+  let currentUsername = await getStoredChatUsername();
+  let isLoading = false;
+
+  const stopPolling = () => {
+    if (pollingId !== null) {
+      clearInterval(pollingId);
+      pollingId = null;
+    }
+  };
+
+  const { overlay } = createChatModalContainer(stopPolling);
+  const content = overlay.querySelector('#mathematica-chat-content') as HTMLDivElement | null;
+  if (!content) {
+    return;
+  }
+
+  const chatView = document.createElement('div');
+  chatView.style.display = 'flex';
+  chatView.style.flexDirection = 'column';
+  chatView.style.gap = '10px';
+
+  const roomRow = document.createElement('div');
+  roomRow.style.display = 'flex';
+  roomRow.style.gap = '8px';
+  roomRow.style.alignItems = 'center';
+
+  const roomInput = document.createElement('input');
+  roomInput.type = 'text';
+  roomInput.placeholder = 'Chat ID';
+  roomInput.value = currentRoomId || '';
+  roomInput.style.flex = '1';
+  roomInput.style.padding = '8px 10px';
+  roomInput.style.border = '1px solid #ddd';
+  roomInput.style.borderRadius = '8px';
+  roomInput.style.fontSize = '13px';
+
+  const saveRoomBtn = document.createElement('button');
+  saveRoomBtn.textContent = 'Zapisz';
+  saveRoomBtn.style.padding = '8px 12px';
+  saveRoomBtn.style.border = '1px solid #ddd';
+  saveRoomBtn.style.background = '#f8fafc';
+  saveRoomBtn.style.borderRadius = '6px';
+
+  roomRow.appendChild(roomInput);
+  roomRow.appendChild(saveRoomBtn);
+
+  const status = document.createElement('div');
+  status.style.fontSize = '12px';
+  status.style.color = '#666';
+  status.style.background = '#f8fafc';
+  status.style.border = '1px solid #e6e6e6';
+  status.style.padding = '6px 8px';
+  status.style.borderRadius = '6px';
+  status.textContent = 'Podaj Chat ID, aby rozpoczac.';
+
+  const messagesContainer = document.createElement('div');
+  messagesContainer.style.display = 'flex';
+  messagesContainer.style.flexDirection = 'column';
+  messagesContainer.style.gap = '8px';
+  messagesContainer.style.maxHeight = '45vh';
+  messagesContainer.style.overflowY = 'auto';
+  messagesContainer.style.border = '1px solid #e6e6e6';
+  messagesContainer.style.borderRadius = '8px';
+  messagesContainer.style.padding = '10px';
+  messagesContainer.style.background = 'linear-gradient(180deg, #ffffff 0%, #f8fafc 100%)';
+
+  const inputRow = document.createElement('div');
+  inputRow.style.display = 'flex';
+  inputRow.style.gap = '8px';
+  inputRow.style.alignItems = 'center';
+
+  const messageInput = document.createElement('textarea');
+  messageInput.placeholder = 'Wpisz wiadomosc...';
+  messageInput.rows = 2;
+  messageInput.style.flex = '1';
+  messageInput.style.padding = '8px 10px';
+  messageInput.style.border = '1px solid #ddd';
+  messageInput.style.borderRadius = '8px';
+  messageInput.style.fontSize = '13px';
+  messageInput.style.resize = 'vertical';
+
+  const sendBtn = document.createElement('button');
+  sendBtn.textContent = 'Wyslij';
+  sendBtn.style.padding = '8px 12px';
+  sendBtn.style.border = '1px solid #f4b9a6';
+  sendBtn.style.background = '#ffefe9';
+  sendBtn.style.color = '#9a3412';
+  sendBtn.style.borderRadius = '6px';
+
+  const attachBtn = document.createElement('button');
+  attachBtn.textContent = 'Zalacz kod';
+  attachBtn.style.padding = '8px 12px';
+  attachBtn.style.border = '1px solid #ddd';
+  attachBtn.style.background = '#f8fafc';
+  attachBtn.style.borderRadius = '6px';
+  attachBtn.style.whiteSpace = 'nowrap';
+
+  inputRow.appendChild(messageInput);
+  inputRow.appendChild(attachBtn);
+  inputRow.appendChild(sendBtn);
+
+  chatView.appendChild(roomRow);
+  chatView.appendChild(status);
+  chatView.appendChild(messagesContainer);
+  chatView.appendChild(inputRow);
+
+  content.appendChild(chatView);
+
+  const setStatus = (text: string, isError = false) => {
+    status.textContent = text;
+    status.style.color = isError ? '#b91c1c' : '#666';
+    status.style.background = isError ? '#fef2f2' : '#f8fafc';
+    status.style.border = isError ? '1px solid #fecaca' : '1px solid #e6e6e6';
+  };
+
+  const setChatEnabled = (enabled: boolean) => {
+    roomInput.disabled = !enabled;
+    saveRoomBtn.disabled = !enabled;
+    messageInput.disabled = !enabled;
+    attachBtn.disabled = !enabled;
+    sendBtn.disabled = !enabled;
+    messagesContainer.style.opacity = enabled ? '1' : '0.6';
+  };
+
+  const loadMessages = async (scrollToBottom: boolean) => {
+    if (!currentRoomId || isLoading) {
+      return;
+    }
+    isLoading = true;
+    const messages = await oneChatGet(currentRoomId);
+    renderChatMessages(messagesContainer, messages, currentUsername);
+    if (scrollToBottom) {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    }
+    isLoading = false;
+  };
+
+  const startPolling = () => {
+    stopPolling();
+    pollingId = window.setInterval(() => {
+      loadMessages(false);
+    }, 4000);
+  };
+
+  const applyRoom = async () => {
+    const value = roomInput.value.trim();
+    if (!value) {
+      setStatus('Chat ID jest wymagane.', true);
+      return;
+    }
+    currentRoomId = value;
+    await setStoredChatRoomId(value);
+    setStatus(`Polaczono z: ${value}`);
+    await loadMessages(true);
+    startPolling();
+  };
+
+  saveRoomBtn.addEventListener('click', applyRoom);
+  roomInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      applyRoom();
+    }
+  });
+
+
+  sendBtn.addEventListener('click', async () => {
+    const message = messageInput.value.trim();
+    if (!currentRoomId) {
+      setStatus('Najpierw ustaw Chat ID.', true);
+      return;
+    }
+    if (!currentUsername) {
+      setStatus('Ustaw nazwę użytkownika w oknie wtyczki.', true);
+      return;
+    }
+    if (!message) {
+      setStatus('Wiadomosc nie moze byc pusta.', true);
+      return;
+    }
+    sendBtn.disabled = true;
+    const ok = await oneChatSend(currentRoomId, currentUsername, message);
+    sendBtn.disabled = false;
+    if (!ok) {
+      setStatus('Nie udalo sie wyslac wiadomosci.', true);
+      return;
+    }
+    messageInput.value = '';
+    await loadMessages(true);
+  });
+
+  attachBtn.addEventListener('click', async () => {
+    if (!currentRoomId) {
+      setStatus('Najpierw ustaw Chat ID.', true);
+      return;
+    }
+    if (!currentUsername) {
+      setStatus('Ustaw nazwę użytkownika w oknie wtyczki.', true);
+      return;
+    }
+    const notebookText = getNotebookTextForChat();
+    if (!notebookText) {
+      return;
+    }
+    attachBtn.disabled = true;
+    const payload = JSON.stringify({ type: "notebook", content: notebookText });
+    const ok = await oneChatSend(currentRoomId, currentUsername, payload);
+    attachBtn.disabled = false;
+    if (!ok) {
+      setStatus('Nie udalo sie wyslac kodu.', true);
+      return;
+    }
+    await loadMessages(true);
+  });
+
+  messageInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      sendBtn.click();
+    }
+  });
+
+  setChatEnabled(!!currentUsername);
+  document.body.appendChild(overlay);
+
+  if (currentRoomId && currentUsername) {
+    setStatus(`Polaczono z: ${currentRoomId}`);
+    await loadMessages(true);
+    startPolling();
   }
 }

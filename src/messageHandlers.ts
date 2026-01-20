@@ -58,3 +58,75 @@ export function handleAiAnswer(
 
   return true; // keep the message channel open for async sendResponse
 }
+
+export function handleOneChatGet(
+  request: any,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: any) => void
+): boolean {
+  (async () => {
+    try {
+      const roomId = request?.roomId ?? "";
+      if (!roomId) {
+        sendResponse({ status: "invalid_room" });
+        return;
+      }
+
+      const response = await fetch(`https://onechat.p4tkry.pl/${encodeURIComponent(roomId)}`, {
+        method: 'GET'
+      });
+
+      if (!response.ok) {
+        sendResponse({ status: "error" });
+        return;
+      }
+
+      const data = await response.json();
+      sendResponse({ status: "success", data });
+    } catch (error) {
+      console.error('OneChat get failed:', error);
+      sendResponse({ status: "error" });
+    }
+  })();
+
+  return true;
+}
+
+export function handleOneChatSend(
+  request: any,
+  sender: chrome.runtime.MessageSender,
+  sendResponse: (response: any) => void
+): boolean {
+  (async () => {
+    try {
+      const roomId = request?.roomId ?? "";
+      const username = request?.username ?? "";
+      const content = request?.content ?? "";
+      if (!roomId || !username || !content) {
+        sendResponse({ status: "invalid_payload" });
+        return;
+      }
+
+      const response = await fetch(`https://onechat.p4tkry.pl/${encodeURIComponent(roomId)}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ username, content })
+      });
+
+      if (!response.ok) {
+        sendResponse({ status: "error" });
+        return;
+      }
+
+      const data = await response.json();
+      sendResponse({ status: "success", data });
+    } catch (error) {
+      console.error('OneChat send failed:', error);
+      sendResponse({ status: "error" });
+    }
+  })();
+
+  return true;
+}

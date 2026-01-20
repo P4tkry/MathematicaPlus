@@ -1,4 +1,4 @@
-import { handleValidateAccessToken, handleAiAnswer } from './messageHandlers.js';
+import { handleValidateAccessToken, handleAiAnswer, handleOneChatGet, handleOneChatSend } from './messageHandlers.js';
 import { checkURLIfWolframCloud } from './utils.js';
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -13,11 +13,17 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.type === "aiAnswer") {
     return handleAiAnswer(request, sender, sendResponse);
   }
+  if (request.type === "onechatGet") {
+    return handleOneChatGet(request, sender, sendResponse);
+  }
+  if (request.type === "onechatSend") {
+    return handleOneChatSend(request, sender, sendResponse);
+  }
 });
 
 // Keyboard shortcut listener
 chrome.commands.onCommand.addListener(function (command) {
-  if (command !== "activate-ai-math" && command !== "audit-notebook-v2") {
+  if (command !== "activate-ai-math" && command !== "audit-notebook-v2" && command !== "open-chat-modal") {
     return;
   }
 
@@ -34,7 +40,7 @@ chrome.commands.onCommand.addListener(function (command) {
     }, () => {
       chrome.tabs.sendMessage(activeTab.id!, {
         type: "runContentAction",
-        action: command === "audit-notebook-v2" ? "audit" : "compute"
+        action: command === "audit-notebook-v2" ? "audit" : command === "open-chat-modal" ? "chat" : "compute"
       });
     });
   });

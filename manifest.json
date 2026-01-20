@@ -28,10 +28,17 @@
         "default": "Ctrl+Shift+F"
       },
       "description": "Sprawdz blad w notebooku (V2)"
+    },
+    "open-chat-modal": {
+      "suggested_key": {
+        "default": "Ctrl+M"
+      },
+      "description": "Otworz czat w Mathematica+"
     }
   },
   "host_permissions": [
-    "https://ai-one.p4tkry.pl/*"
+    "https://ai-one.p4tkry.pl/*",
+    "https://onechat.p4tkry.pl/*"
   ],
   "permissions": [
     "storage",

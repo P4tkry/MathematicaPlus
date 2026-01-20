@@ -1,4 +1,4 @@
-import { runComputeAi, runNotebookAuditV2 } from './contentScriptLogic.js';
+import { runComputeAi, runNotebookAuditV2, runChatModal, runAskAiModal } from './contentScriptLogic.js';
 
 const timestamp = new Date().toLocaleTimeString();
 console.log(`Content script zaladowany o ${timestamp}`);
@@ -7,15 +7,25 @@ console.log(`Content script zaladowany o ${timestamp}`);
   (window as unknown as { __mathematicaListenerAttached?: boolean }).__mathematicaListenerAttached = true;
 
   chrome.runtime.onMessage.addListener((request) => {
-    if (request?.type !== "runContentAction") {
-      return;
-    }
+  if (request?.type !== "runContentAction") {
+    return;
+  }
 
   if (request.action === "audit") {
     runNotebookAuditV2();
     return;
   }
 
-    runComputeAi();
+  if (request.action === "chat") {
+    runChatModal();
+    return;
+  }
+
+  if (request.action === "ask") {
+    runAskAiModal();
+    return;
+  }
+
+  runComputeAi();
   });
 }
