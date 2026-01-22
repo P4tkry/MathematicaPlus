@@ -1,7 +1,16 @@
 // Content script logic for processing Math+ directives
 import katex from 'katex';
 import katexStyles from 'katex/dist/katex.min.css';
-import { getStoredProcessingMode, getStoredChatRoomId, setStoredChatRoomId, getStoredChatUsername, getStoredToken } from './storage.js';
+import {
+  getStoredProcessingMode,
+  getStoredChatRoomId,
+  setStoredChatRoomId,
+  getStoredChatUsername,
+  getStoredToken,
+  getStoredAiModel,
+  setStoredAiModel,
+  type AiModel
+} from './storage.js';
 
 interface Directive {
   directive: string;
@@ -74,9 +83,9 @@ export function getAllMathPlusDirectives(): Directive[] {
   return directives;
 }
 
-export async function fetchAIResponse(prompt: string): Promise<string | null> {
+export async function fetchAIResponse(prompt: string, model: AiModel = 'gpt-4.1'): Promise<string | null> {
   const response = await new Promise((resolve) => {
-    chrome.runtime.sendMessage({ type: "aiAnswer", model: "gpt-4.1", content: prompt }, (response) => {
+    chrome.runtime.sendMessage({ type: "aiAnswer", model, content: prompt }, (response) => {
       if (chrome.runtime.lastError) {
         console.error('AI request error:', chrome.runtime.lastError.message);
         resolve({ status: "error" });
@@ -376,6 +385,14 @@ interface ChatPayload {
   content: string;
 }
 
+const allowedAiModels: AiModel[] = [
+  'gpt-4.1',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-3.5-turbo-0125',
+  'gpt-5-mini'
+];
+
 function buildAuditBody(item: AuditErrorItem): string {
   const error = renderLatex(item.error || "-");
   const current = renderLatex(item.current || "-");
@@ -478,6 +495,35 @@ function createAskAiModal(): HTMLElement {
   header.appendChild(title);
   header.appendChild(closeBtn);
 
+  const modelRow = document.createElement('div');
+  modelRow.style.display = 'flex';
+  modelRow.style.alignItems = 'center';
+  modelRow.style.gap = '10px';
+
+  const modelLabel = document.createElement('div');
+  modelLabel.textContent = 'Model';
+  modelLabel.style.fontSize = '12px';
+  modelLabel.style.color = '#444';
+  modelLabel.style.minWidth = '46px';
+
+  const modelSelect = document.createElement('select');
+  modelSelect.id = 'mathematica-ask-model';
+  modelSelect.style.flex = '1';
+  modelSelect.style.padding = '8px 10px';
+  modelSelect.style.border = '1px solid #ddd';
+  modelSelect.style.borderRadius = '8px';
+  modelSelect.style.fontSize = '13px';
+
+  for (const model of allowedAiModels) {
+    const option = document.createElement('option');
+    option.value = model;
+    option.textContent = model;
+    modelSelect.appendChild(option);
+  }
+
+  modelRow.appendChild(modelLabel);
+  modelRow.appendChild(modelSelect);
+
   const input = document.createElement('textarea');
   input.id = 'mathematica-ask-input';
   input.placeholder = 'Wpisz pytanie...';
@@ -523,6 +569,7 @@ function createAskAiModal(): HTMLElement {
   responseWrap.style.background = '#fafafa';
 
   modal.appendChild(header);
+  modal.appendChild(modelRow);
   modal.appendChild(input);
   modal.appendChild(actions);
   modal.appendChild(responseWrap);
@@ -558,10 +605,18 @@ export async function runAskAiModal(): Promise<void> {
   const input = overlay.querySelector('#mathematica-ask-input') as HTMLTextAreaElement | null;
   const sendBtn = overlay.querySelector('#mathematica-ask-send') as HTMLButtonElement | null;
   const responseWrap = overlay.querySelector('#mathematica-ask-response') as HTMLDivElement | null;
+  const modelSelect = overlay.querySelector('#mathematica-ask-model') as HTMLSelectElement | null;
 
-  if (!input || !sendBtn || !responseWrap) {
+  if (!input || !sendBtn || !responseWrap || !modelSelect) {
     return;
   }
+
+  const storedModel = await getStoredAiModel();
+  modelSelect.value = storedModel;
+  modelSelect.addEventListener('change', () => {
+    const value = modelSelect.value as AiModel;
+    setStoredAiModel(value);
+  });
 
   const setResponse = (text: string) => {
     responseWrap.innerHTML = buildResultBody({ directive: 'Ask', content: input.value.trim(), response: text });
@@ -577,12 +632,13 @@ export async function runAskAiModal(): Promise<void> {
     const originalLabel = sendBtn.textContent;
     sendBtn.textContent = 'Generowanie...';
     setResponse('Generowanie odpowiedzi...');
+    const selectedModel = (modelSelect.value as AiModel) || 'gpt-4.1';
     const prompt = [
       question,
       "",
       "Zawsze zapisuj wzory LaTeX tylko jako $...$ (inline) lub $$...$$ (display). Nie używaj \\( \\) ani \\[ \\]."
     ].join('\n');
-    const response = await fetchAIResponse(prompt);
+    const response = await fetchAIResponse(prompt, selectedModel);
     sendBtn.disabled = false;
     sendBtn.textContent = originalLabel || 'Zapytaj';
     setResponse(response || 'Błąd podczas pobierania odpowiedzi AI');
