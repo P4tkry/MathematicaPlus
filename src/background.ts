@@ -23,7 +23,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // Keyboard shortcut listener
 chrome.commands.onCommand.addListener(function (command) {
-  if (command !== "activate-ai-math" && command !== "audit-notebook-v2" && command !== "open-chat-modal") {
+  if (command !== "activate-ai-math" && command !== "audit-notebook-v2" && command !== "open-chat-modal" && command !== "open-ask-modal") {
     return;
   }
 
@@ -40,7 +40,13 @@ chrome.commands.onCommand.addListener(function (command) {
     }, () => {
       chrome.tabs.sendMessage(activeTab.id!, {
         type: "runContentAction",
-        action: command === "audit-notebook-v2" ? "audit" : command === "open-chat-modal" ? "chat" : "compute"
+        action: command === "audit-notebook-v2"
+          ? "audit"
+          : command === "open-chat-modal"
+            ? "chat"
+            : command === "open-ask-modal"
+              ? "ask"
+              : "compute"
       });
     });
   });

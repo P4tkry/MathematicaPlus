@@ -34,6 +34,12 @@
         "default": "Ctrl+M"
       },
       "description": "Otworz czat w Mathematica+"
+    },
+    "open-ask-modal": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+M"
+      },
+      "description": "Otworz czat AI w Mathematica+"
     }
   },
   "host_permissions": [

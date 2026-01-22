@@ -36,7 +36,7 @@ export function getAllMathPlusDirectives(): Directive[] {
   const directives: Directive[] = [];
 
   // Find all strings [Math: ...], [Wolfram: ...], [Explain: ...]
-  const notebookText = getNotebookCells(notebookDiv).join(' ');
+  const notebookText = getNotebookCells().join(' ');
   const mathRegex = /\[\s*Math\s*:\s*(.*?)\]/g;
   const wolframRegex = /\[\s*Wolfram\s*:\s*(.*?)\]/g;
   const explainRegex = /\[\s*Explain\s*:\s*(.*?)\]/g;
@@ -1290,29 +1290,48 @@ function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null):
   return overlay;
 }
 
-function getNotebookCells(notebookDiv: HTMLElement): string[] {
-  const rawText = notebookDiv.innerText || "";
-  return rawText
-    .split(" ")
-    .map((cell) => cell.replaceAll("\n", " "))
-    .map((cell) => cell.replace(/[\u200B-\u200D\uFEFF]/g, ""))
-    .map((cell) => cell.replace(/In\s*\[\s*[\d*]+\s*\]\s*:\s*=\s*/g, ""))
-    .map((cell) => cell.trim())
-    .filter((cell) => cell.length > 0)
-    .filter((cell) => !isOutBlock(cell));
-}
+function getNotebookCells(): string[] {
+  const kernels = Array.from(document.querySelectorAll('div.session-kernel'));
+  const nodes = kernels
+    .map((kernel) => {
+      const codeMirrorElement = kernel.querySelectorAll('.CodeMirror-lines')[0];
+      if (!codeMirrorElement) {
+        return null;
+      }
+      const lineNodes = codeMirrorElement.childNodes[0]?.childNodes ?? [];
+      const filteredNodes = Array.from(lineNodes).filter((node) => {
+        const className = (node as HTMLElement).className;
+        return className ? !className : true;
+      });
+      return filteredNodes[0] ?? null;
+    })
+    .filter((node): node is ChildNode => node !== null);
 
-function isOutBlock(text: string): boolean {
-  return /^Out(\s|\[|:)/.test(text);
+  const texts = nodes.map((node) => {
+    const childNodes = Array.from(node.childNodes);
+    const text = childNodes
+      .map((n) => n.textContent ?? "")
+      .join("")
+      .replace(/\uf522/g, "->")
+      .replace(/\u00a0/g, " ")
+      .replace(/\u2264/g, "<=")
+      .replace(/\u2265/g, ">=")
+      .trim()
+      .split(/\u200b/g);
+    return text;
+  });
+
+  return texts
+    .flat();
 }
 
 function getNotebookTextForChat(): string | null {
-  const notebookDiv = document.querySelector('.notebook') as HTMLElement | null;
-  if (!notebookDiv) {
+  const cells = getNotebookCells();
+  if (cells.length === 0) {
     showErrorPopup("Nie znaleziono notebooka");
     return null;
   }
-  const text = getNotebookCells(notebookDiv).join('\n').trim();
+  const text = cells.join('\n').trim();
   if (!text) {
     showErrorPopup("Notebook jest pusty");
     return null;
@@ -1343,13 +1362,7 @@ function getAllDirectivesFromNotebookCells(cells: string[]): Directive[] {
 }
 
 async function runComputeAiV2(): Promise<void> {
-  const notebookDiv = document.querySelector('.notebook') as HTMLElement | null;
-  if (!notebookDiv) {
-    showErrorPopup("Nie znaleziono notebooka");
-    return;
-  }
-
-  const notebookCells = getNotebookCells(notebookDiv);
+  const notebookCells = getNotebookCells();
   console.log("Mathematica+ V2 notebookCells:", JSON.stringify(notebookCells));
   const notebookText = notebookCells.join(' ');
   const directives = getAllDirectivesFromNotebookCells([notebookText]);
@@ -1445,13 +1458,8 @@ export async function runNotebookAuditV2(): Promise<void> {
     return;
   }
 
-  const notebookDiv = document.querySelector('.notebook') as HTMLElement | null;
-  if (!notebookDiv) {
-    showErrorPopup("Nie znaleziono notebooka");
-    return;
-  }
 
-  const notebookCells = getNotebookCells(notebookDiv);
+  const notebookCells = getNotebookCells();
   console.log("Mathematica+ V2 audit notebookCells:", JSON.stringify(notebookCells));
   const notebookText = notebookCells.join(' ');
   if (!notebookText.trim()) {
@@ -1677,7 +1685,7 @@ export async function runChatModal(): Promise<void> {
     stopPolling();
     pollingId = window.setInterval(() => {
       loadMessages(false);
-    }, 4000);
+    }, 500);
   };
 
   const applyRoom = async () => {
