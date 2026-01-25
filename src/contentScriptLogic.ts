@@ -1150,7 +1150,7 @@ function renderChatMessages(container: HTMLElement, messages: OneChatMessage[], 
   }
 }
 
-function buildModalElement(items: ModalItem[], notebookDiv: HTMLElement | null): HTMLElement {
+function buildModalElement(items: ModalItem[]): HTMLElement {
   const overlay = document.createElement('div');
   overlay.id = 'mathematica-modal-overlay';
   overlay.style.position = 'fixed';
@@ -1399,7 +1399,7 @@ async function runComputeAiV2(): Promise<void> {
   ensureKatexStyles();
   ensureMarkdownStyles();
   ensureResultStyles();
-  const overlay = buildModalElement(results, notebookDiv);
+  const overlay = buildModalElement(results);
   document.body.appendChild(overlay);
   } finally {
     hideLoadingSpinner();
