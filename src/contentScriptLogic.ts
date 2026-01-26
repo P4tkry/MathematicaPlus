@@ -936,7 +936,7 @@ function ensureResultStyles(): void {
   document.head.appendChild(style);
 }
 
-function createChatModalContainer(onClose?: () => void): { overlay: HTMLElement; close: () => void } {
+function createChatModalContainer(onClose?: () => void): { overlay: HTMLElement; close: () => void; leaveRoomBtn: HTMLButtonElement } {
   const overlay = document.createElement('div');
   overlay.id = 'mathematica-chat-overlay';
   overlay.style.position = 'fixed';
@@ -978,11 +978,27 @@ function createChatModalContainer(onClose?: () => void): { overlay: HTMLElement;
   header.style.background = 'linear-gradient(90deg, #fff7ed, #ffffff)';
   header.style.margin = '-16px -18px 8px';
   header.style.padding = '12px 18px';
+  header.style.gap = '10px';
+
+  const leftHeader = document.createElement('div');
+  leftHeader.style.display = 'flex';
+  leftHeader.style.alignItems = 'center';
+  leftHeader.style.gap = '10px';
+
+  const leaveRoomBtn = document.createElement('button');
+  leaveRoomBtn.textContent = '⤺ Opuść pokój';
+  leaveRoomBtn.style.padding = '6px 10px';
+  leaveRoomBtn.style.border = '1px solid #e5e7eb';
+  leaveRoomBtn.style.background = '#ffffff';
+  leaveRoomBtn.style.borderRadius = '6px';
+  leaveRoomBtn.style.fontSize = '12px';
+  leaveRoomBtn.style.color = '#6b7280';
 
   const title = document.createElement('div');
   title.textContent = 'MathematicaPlus inChat';
   title.style.fontWeight = 'bold';
   title.style.fontSize = '15px';
+  title.style.color = '#111827';
 
   const closeBtn = document.createElement('button');
   closeBtn.textContent = '✕';
@@ -990,7 +1006,9 @@ function createChatModalContainer(onClose?: () => void): { overlay: HTMLElement;
   closeBtn.style.background = 'transparent';
   closeBtn.style.fontSize = '14px';
 
-  header.appendChild(title);
+  leftHeader.appendChild(leaveRoomBtn);
+  leftHeader.appendChild(title);
+  header.appendChild(leftHeader);
   header.appendChild(closeBtn);
 
   const content = document.createElement('div');
@@ -1027,7 +1045,7 @@ function createChatModalContainer(onClose?: () => void): { overlay: HTMLElement;
   document.addEventListener('mousedown', handleOutsideClick, true);
   detachEscape = attachEscapeClose(close);
 
-  return { overlay, close };
+  return { overlay, close, leaveRoomBtn };
 }
 
 async function oneChatGet(roomId: string): Promise<OneChatMessage[]> {
@@ -1083,7 +1101,12 @@ function parseChatPayload(raw: string): ChatPayload | null {
   }
 }
 
-function renderChatMessages(container: HTMLElement, messages: OneChatMessage[], currentUsername: string): void {
+function renderChatMessages(
+  container: HTMLElement,
+  messages: OneChatMessage[],
+  currentUsername: string,
+  onJoinRoom?: (roomName: string) => void
+): void {
   container.innerHTML = '';
   if (messages.length === 0) {
     const empty = document.createElement('div');
@@ -1104,6 +1127,49 @@ function renderChatMessages(container: HTMLElement, messages: OneChatMessage[], 
     item.style.borderRadius = '12px';
     item.style.background = isSelf ? '#fff1eb' : '#f8fafc';
     item.style.boxShadow = '0 4px 10px rgba(0,0,0,0.06)';
+    item.style.display = 'flex';
+    item.style.gap = '8px';
+    item.style.alignItems = 'flex-start';
+
+    const getInitials = (username: string): string => {
+      const parts = username.trim().split(/\s+/).filter(Boolean);
+      if (parts.length >= 2) {
+        return `${parts[0][0] ?? ''}${parts[1][0] ?? ''}`.toUpperCase();
+      }
+      const word = parts[0] ?? '';
+      return word.slice(0, 2).toUpperCase();
+    };
+
+    const getAvatarColor = (username: string): string => {
+      let hash = 2166136261;
+      for (let i = 0; i < username.length; i += 1) {
+        hash ^= username.charCodeAt(i);
+        hash = Math.imul(hash, 16777619);
+      }
+      const hue = Math.abs(hash) % 360;
+      const sat = 55 + (Math.abs(hash >> 8) % 25);
+      const light = 70 + (Math.abs(hash >> 16) % 16);
+      return `hsl(${hue}, ${sat}%, ${light}%)`;
+    };
+
+    const avatar = document.createElement('div');
+    avatar.textContent = getInitials(msg.username || '?');
+    avatar.style.width = '28px';
+    avatar.style.height = '28px';
+    avatar.style.borderRadius = '999px';
+    avatar.style.display = 'flex';
+    avatar.style.alignItems = 'center';
+    avatar.style.justifyContent = 'center';
+    avatar.style.fontSize = '11px';
+    avatar.style.fontWeight = '600';
+    avatar.style.color = '#111827';
+    avatar.style.background = getAvatarColor(msg.username || '');
+    avatar.style.flex = '0 0 auto';
+
+    const contentWrap = document.createElement('div');
+    contentWrap.style.display = 'flex';
+    contentWrap.style.flexDirection = 'column';
+    contentWrap.style.gap = '4px';
 
     const meta = document.createElement('div');
     meta.textContent = `${msg.username} • ${formatChatTimestamp(msg.timestamp)}`;
@@ -1117,6 +1183,129 @@ function renderChatMessages(container: HTMLElement, messages: OneChatMessage[], 
     body.style.fontSize = '14px';
     body.style.whiteSpace = 'pre-wrap';
 
+    const buildCodeBlock = (code: string): HTMLElement => {
+      const codeBox = document.createElement('pre');
+      codeBox.textContent = code;
+      codeBox.style.margin = '0';
+      codeBox.style.padding = '28px 36px 10px 12px';
+      codeBox.style.background = '#ffffff';
+      codeBox.style.color = '#111827';
+      codeBox.style.borderRadius = '8px';
+      codeBox.style.fontSize = '12px';
+      codeBox.style.lineHeight = '1.45';
+      codeBox.style.whiteSpace = 'pre-wrap';
+      codeBox.style.fontFamily = 'Consolas, "Courier New", monospace';
+
+      const codeWrap = document.createElement('div');
+      codeWrap.style.position = 'relative';
+      codeWrap.style.display = 'block';
+
+      const copyBtn = document.createElement('button');
+      copyBtn.type = 'button';
+      copyBtn.setAttribute('aria-label', 'Kopiuj kod');
+      copyBtn.textContent = '📋';
+      copyBtn.style.position = 'absolute';
+      copyBtn.style.top = '8px';
+      copyBtn.style.right = '8px';
+      copyBtn.style.border = '1px solid #e5e7eb';
+      copyBtn.style.background = '#ffffff';
+      copyBtn.style.color = '#111827';
+      copyBtn.style.borderRadius = '6px';
+      copyBtn.style.fontSize = '12px';
+      copyBtn.style.padding = '2px 6px';
+      copyBtn.style.cursor = 'pointer';
+      copyBtn.style.boxShadow = '0 2px 6px rgba(0,0,0,0.08)';
+
+      const copyText = async () => {
+        try {
+          await navigator.clipboard.writeText(code);
+          copyBtn.textContent = '✓';
+          setTimeout(() => {
+            copyBtn.textContent = '📋';
+          }, 1200);
+        } catch (error) {
+          console.error('Copy failed:', error);
+        }
+      };
+
+      copyBtn.addEventListener('click', () => {
+        void copyText();
+      });
+
+      codeWrap.appendChild(codeBox);
+      codeWrap.appendChild(copyBtn);
+      return codeWrap;
+    };
+
+    const renderTextWithCodeFences = (text: string): void => {
+      const parts: Array<{ type: 'text' | 'code'; value: string }> = [];
+      const regex = /```([\s\S]*?)```/g;
+      let lastIndex = 0;
+      let match: RegExpExecArray | null;
+      while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+          parts.push({ type: 'text', value: text.slice(lastIndex, match.index) });
+        }
+        parts.push({ type: 'code', value: match[1] });
+        lastIndex = match.index + match[0].length;
+      }
+      if (lastIndex < text.length) {
+        parts.push({ type: 'text', value: text.slice(lastIndex) });
+      }
+
+      const renderTextWithChatLinks = (value: string, containerEl: HTMLElement): void => {
+        const chatRegex = /\[\s*Chat\s*->\s*([^\]]+)\s*\]/g;
+        let textIndex = 0;
+        let chatMatch: RegExpExecArray | null;
+        while ((chatMatch = chatRegex.exec(value)) !== null) {
+          if (chatMatch.index > textIndex) {
+            const textNode = document.createElement('span');
+            textNode.textContent = value.slice(textIndex, chatMatch.index);
+            containerEl.appendChild(textNode);
+          }
+          const roomName = chatMatch[1].trim();
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = `Chat → ${roomName}`;
+          button.style.margin = '0 4px';
+          button.style.padding = '3px 8px';
+          button.style.border = '1px solid #f4b9a6';
+          button.style.background = '#ffefe9';
+          button.style.color = '#9a3412';
+          button.style.borderRadius = '999px';
+          button.style.fontSize = '12px';
+          button.style.cursor = 'pointer';
+          if (onJoinRoom) {
+            button.addEventListener('click', () => {
+              onJoinRoom(roomName);
+            });
+          } else {
+            button.disabled = true;
+            button.style.opacity = '0.6';
+            button.style.cursor = 'not-allowed';
+          }
+          containerEl.appendChild(button);
+          textIndex = chatMatch.index + chatMatch[0].length;
+        }
+        if (textIndex < value.length) {
+          const textNode = document.createElement('span');
+          textNode.textContent = value.slice(textIndex);
+          containerEl.appendChild(textNode);
+        }
+      };
+
+      for (const part of parts) {
+        if (part.type === 'code') {
+          body.appendChild(buildCodeBlock(part.value.trim()));
+        } else if (part.value.trim().length > 0) {
+          const textBlock = document.createElement('div');
+          textBlock.style.whiteSpace = 'pre-wrap';
+          renderTextWithChatLinks(part.value, textBlock);
+          body.appendChild(textBlock);
+        }
+      }
+    };
+
     if (payload?.type === 'notebook') {
       const label = document.createElement('div');
       label.textContent = 'Notebook';
@@ -1126,26 +1315,25 @@ function renderChatMessages(container: HTMLElement, messages: OneChatMessage[], 
       label.style.color = '#9a3412';
       label.style.marginBottom = '6px';
 
-      const codeBox = document.createElement('pre');
-      codeBox.textContent = payload.content;
-      codeBox.style.margin = '0';
-      codeBox.style.padding = '10px 12px';
-      codeBox.style.background = '#1f2937';
-      codeBox.style.color = '#f8fafc';
-      codeBox.style.borderRadius = '8px';
-      codeBox.style.fontSize = '12px';
-      codeBox.style.lineHeight = '1.45';
-      codeBox.style.whiteSpace = 'pre-wrap';
-      codeBox.style.fontFamily = 'Consolas, "Courier New", monospace';
-
       body.appendChild(label);
-      body.appendChild(codeBox);
+      body.appendChild(buildCodeBlock(payload.content));
     } else {
-      body.textContent = msg.content;
+      if (msg.content.includes('!important')) {
+        item.style.border = '1px solid #ef4444';
+        item.style.background = '#fef2f2';
+        item.style.boxShadow = '0 6px 14px rgba(239, 68, 68, 0.25)';
+        const cleanedText = msg.content.replace(/!important/g, '').trim();
+        renderTextWithCodeFences(cleanedText);
+      } else {
+        renderTextWithCodeFences(msg.content);
+      }
     }
 
-    item.appendChild(meta);
-    item.appendChild(body);
+    contentWrap.appendChild(meta);
+    contentWrap.appendChild(body);
+
+    item.appendChild(avatar);
+    item.appendChild(contentWrap);
     container.appendChild(item);
   }
 }
@@ -1546,6 +1734,12 @@ export async function runChatModal(): Promise<void> {
   let currentRoomId = await getStoredChatRoomId();
   let currentUsername = await getStoredChatUsername();
   let isLoading = false;
+  let lastMessagesSignature = '';
+  let autoScrollEnabled = true;
+  let isInitialLoad = true;
+  const restoreScrollRoomId = currentRoomId;
+  let didRestoreScroll = false;
+  let scrollSaveTimeout: number | null = null;
 
   const stopPolling = () => {
     if (pollingId !== null) {
@@ -1554,7 +1748,7 @@ export async function runChatModal(): Promise<void> {
     }
   };
 
-  const { overlay } = createChatModalContainer(stopPolling);
+  const { overlay, leaveRoomBtn } = createChatModalContainer(stopPolling);
   const content = overlay.querySelector('#mathematica-chat-content') as HTMLDivElement | null;
   if (!content) {
     return;
@@ -1581,7 +1775,7 @@ export async function runChatModal(): Promise<void> {
   roomInput.style.fontSize = '13px';
 
   const saveRoomBtn = document.createElement('button');
-  saveRoomBtn.textContent = 'Zapisz';
+  saveRoomBtn.textContent = 'Dolacz';
   saveRoomBtn.style.padding = '8px 12px';
   saveRoomBtn.style.border = '1px solid #ddd';
   saveRoomBtn.style.background = '#f8fafc';
@@ -1590,6 +1784,12 @@ export async function runChatModal(): Promise<void> {
   roomRow.appendChild(roomInput);
   roomRow.appendChild(saveRoomBtn);
 
+  const statusRow = document.createElement('div');
+  statusRow.style.display = 'flex';
+  statusRow.style.alignItems = 'center';
+  statusRow.style.justifyContent = 'space-between';
+  statusRow.style.gap = '8px';
+
   const status = document.createElement('div');
   status.style.fontSize = '12px';
   status.style.color = '#666';
@@ -1597,7 +1797,65 @@ export async function runChatModal(): Promise<void> {
   status.style.border = '1px solid #e6e6e6';
   status.style.padding = '6px 8px';
   status.style.borderRadius = '6px';
+  status.style.flex = '1';
   status.textContent = 'Podaj Chat ID, aby rozpoczac.';
+
+  const autoScrollWrap = document.createElement('label');
+  autoScrollWrap.style.display = 'flex';
+  autoScrollWrap.style.alignItems = 'center';
+  autoScrollWrap.style.gap = '6px';
+  autoScrollWrap.style.fontSize = '12px';
+  autoScrollWrap.style.color = '#444';
+
+  const autoScrollToggle = document.createElement('input');
+  autoScrollToggle.type = 'checkbox';
+  autoScrollToggle.checked = autoScrollEnabled;
+
+  const autoScrollLabel = document.createElement('span');
+  autoScrollLabel.textContent = 'Auto-scroll';
+
+  autoScrollToggle.addEventListener('change', () => {
+    autoScrollEnabled = autoScrollToggle.checked;
+  });
+
+  autoScrollWrap.appendChild(autoScrollToggle);
+  autoScrollWrap.appendChild(autoScrollLabel);
+  statusRow.appendChild(status);
+  statusRow.appendChild(autoScrollWrap);
+
+  const landing = document.createElement('div');
+  landing.style.display = 'flex';
+  landing.style.flexDirection = 'column';
+  landing.style.alignItems = 'center';
+  landing.style.justifyContent = 'center';
+  landing.style.gap = '12px';
+  landing.style.padding = '18px 10px 6px';
+
+  const landingTitle = document.createElement('div');
+  landingTitle.textContent = 'Wybierz pokój czatu';
+  landingTitle.style.fontWeight = 'bold';
+  landingTitle.style.fontSize = '15px';
+  landingTitle.style.color = '#111827';
+
+  const landingHint = document.createElement('div');
+  landingHint.textContent = 'Dolacz do glownego pokoju lub wpisz Chat ID powyzej.';
+  landingHint.style.fontSize = '12px';
+  landingHint.style.color = '#6b7280';
+
+  const landingCard = document.createElement('button');
+  landingCard.type = 'button';
+  landingCard.textContent = '⭐ Dolacz do glownego chatu (mat2)';
+  landingCard.style.padding = '10px 14px';
+  landingCard.style.border = '1px solid #f4b9a6';
+  landingCard.style.background = '#ffefe9';
+  landingCard.style.color = '#9a3412';
+  landingCard.style.borderRadius = '10px';
+  landingCard.style.cursor = 'pointer';
+  landingCard.style.boxShadow = '0 8px 16px rgba(154,52,18,0.12)';
+
+  landing.appendChild(landingTitle);
+  landing.appendChild(landingHint);
+  landing.appendChild(landingCard);
 
   const messagesContainer = document.createElement('div');
   messagesContainer.style.display = 'flex';
@@ -1625,6 +1883,13 @@ export async function runChatModal(): Promise<void> {
   messageInput.style.fontSize = '13px';
   messageInput.style.resize = 'vertical';
 
+  const inputHint = document.createElement('div');
+  inputHint.textContent = 'Ctrl+Enter — wyslij';
+  inputHint.style.fontSize = '11px';
+  inputHint.style.color = '#6b7280';
+  inputHint.style.marginTop = '4px';
+  inputHint.style.marginLeft = '2px';
+
   const sendBtn = document.createElement('button');
   sendBtn.textContent = 'Wyslij';
   sendBtn.style.padding = '8px 12px';
@@ -1641,12 +1906,19 @@ export async function runChatModal(): Promise<void> {
   attachBtn.style.borderRadius = '6px';
   attachBtn.style.whiteSpace = 'nowrap';
 
-  inputRow.appendChild(messageInput);
+  const inputWrap = document.createElement('div');
+  inputWrap.style.display = 'flex';
+  inputWrap.style.flexDirection = 'column';
+  inputWrap.style.flex = '1';
+  inputWrap.appendChild(messageInput);
+  inputWrap.appendChild(inputHint);
+  inputRow.appendChild(inputWrap);
   inputRow.appendChild(attachBtn);
   inputRow.appendChild(sendBtn);
 
   chatView.appendChild(roomRow);
-  chatView.appendChild(status);
+  chatView.appendChild(statusRow);
+  chatView.appendChild(landing);
   chatView.appendChild(messagesContainer);
   chatView.appendChild(inputRow);
 
@@ -1668,15 +1940,96 @@ export async function runChatModal(): Promise<void> {
     messagesContainer.style.opacity = enabled ? '1' : '0.6';
   };
 
-  const loadMessages = async (scrollToBottom: boolean) => {
+  const getChatScrollPositions = async (): Promise<Record<string, number>> => {
+    return new Promise((resolve) => {
+      chrome.storage.local.get('chatScrollPositions', (result) => {
+        const value = result?.chatScrollPositions;
+        if (value && typeof value === 'object') {
+          resolve(value as Record<string, number>);
+        } else {
+          resolve({});
+        }
+      });
+    });
+  };
+
+  const setChatScrollPosition = async (roomId: string, scrollTop: number): Promise<void> => {
+    const positions = await getChatScrollPositions();
+    positions[roomId] = scrollTop;
+    return new Promise((resolve) => {
+      chrome.storage.local.set({ chatScrollPositions: positions }, () => resolve());
+    });
+  };
+
+  const loadChatScrollPosition = async (roomId: string): Promise<number | null> => {
+    const positions = await getChatScrollPositions();
+    const value = positions[roomId];
+    return typeof value === 'number' ? value : null;
+  };
+
+  messagesContainer.addEventListener('scroll', () => {
+    if (!currentRoomId) {
+      return;
+    }
+    if (scrollSaveTimeout !== null) {
+      clearTimeout(scrollSaveTimeout);
+    }
+    scrollSaveTimeout = window.setTimeout(() => {
+      void setChatScrollPosition(currentRoomId!, messagesContainer.scrollTop);
+    }, 200);
+  });
+
+  const updateJoinButton = () => {
+    const nextValue = roomInput.value.trim();
+    const canJoin = !!nextValue && nextValue !== (currentRoomId || '');
+    saveRoomBtn.disabled = !canJoin;
+    saveRoomBtn.style.opacity = canJoin ? '1' : '0.5';
+    saveRoomBtn.style.cursor = canJoin ? 'pointer' : 'not-allowed';
+    saveRoomBtn.style.background = canJoin ? '#ffefe9' : '#f8fafc';
+    saveRoomBtn.style.border = canJoin ? '1px solid #f4b9a6' : '1px solid #ddd';
+    saveRoomBtn.style.color = canJoin ? '#9a3412' : '#6b7280';
+  };
+
+  const updateView = () => {
+    const hasRoom = !!currentRoomId;
+    landing.style.display = hasRoom ? 'none' : 'flex';
+    messagesContainer.style.display = hasRoom ? 'flex' : 'none';
+    inputRow.style.display = hasRoom ? 'flex' : 'none';
+    leaveRoomBtn.disabled = !hasRoom;
+    leaveRoomBtn.style.opacity = hasRoom ? '1' : '0.5';
+    leaveRoomBtn.style.cursor = hasRoom ? 'pointer' : 'not-allowed';
+    updateJoinButton();
+  };
+
+  const loadMessages = async (scrollToBottom: boolean, forceRender = false) => {
     if (!currentRoomId || isLoading) {
       return;
     }
     isLoading = true;
     const messages = await oneChatGet(currentRoomId);
-    renderChatMessages(messagesContainer, messages, currentUsername);
-    if (scrollToBottom) {
-      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    const signature = messages.length === 0
+      ? `empty:${currentRoomId}`
+      : messages
+          .map((msg) => `${msg.username}|${msg.timestamp}|${msg.content}`)
+          .join('\n');
+    if (forceRender || signature !== lastMessagesSignature) {
+      lastMessagesSignature = signature;
+      renderChatMessages(messagesContainer, messages, currentUsername, (roomName) => {
+        roomInput.value = roomName;
+        applyRoom();
+      });
+      if (!didRestoreScroll && restoreScrollRoomId && currentRoomId === restoreScrollRoomId) {
+        const savedPos = await loadChatScrollPosition(currentRoomId);
+        if (savedPos !== null) {
+          messagesContainer.scrollTop = savedPos;
+        }
+        didRestoreScroll = true;
+      } else if (!isInitialLoad && (scrollToBottom || autoScrollEnabled)) {
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+      }
+    }
+    if (isInitialLoad) {
+      isInitialLoad = false;
     }
     isLoading = false;
   };
@@ -1694,11 +2047,23 @@ export async function runChatModal(): Promise<void> {
       setStatus('Chat ID jest wymagane.', true);
       return;
     }
+    if (value === currentRoomId) {
+      lastMessagesSignature = '';
+      await loadMessages(true, true);
+      updateView();
+      return;
+    }
+    didRestoreScroll = true;
     currentRoomId = value;
     await setStoredChatRoomId(value);
     setStatus(`Polaczono z: ${value}`);
+    lastMessagesSignature = '';
     await loadMessages(true);
     startPolling();
+    updateView();
+    requestAnimationFrame(() => {
+      messagesContainer.scrollTop = messagesContainer.scrollHeight;
+    });
   };
 
   saveRoomBtn.addEventListener('click', applyRoom);
@@ -1707,6 +2072,22 @@ export async function runChatModal(): Promise<void> {
       event.preventDefault();
       applyRoom();
     }
+  });
+  roomInput.addEventListener('input', updateJoinButton);
+
+  leaveRoomBtn.addEventListener('click', async () => {
+    stopPolling();
+    currentRoomId = '';
+    await setStoredChatRoomId('');
+    roomInput.value = '';
+    messagesContainer.innerHTML = '';
+    setStatus('Rozlaczono z pokojem.');
+    updateView();
+  });
+
+  landingCard.addEventListener('click', () => {
+    roomInput.value = 'mat2';
+    applyRoom();
   });
 
 
@@ -1760,7 +2141,7 @@ export async function runChatModal(): Promise<void> {
   });
 
   messageInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && event.ctrlKey) {
       event.preventDefault();
       sendBtn.click();
     }
@@ -1774,4 +2155,6 @@ export async function runChatModal(): Promise<void> {
     await loadMessages(true);
     startPolling();
   }
+
+  updateView();
 }
